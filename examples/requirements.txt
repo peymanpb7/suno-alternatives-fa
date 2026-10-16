@@ -1,0 +1,5 @@
+torch
+soundfile
+numpy
+# اگر از audiocraft به صورت مستقیم استفاده می‌کنید، آن را به صورت زیر نصب کنید:
+# git+https://github.com/facebookresearch/audiocraft.git
