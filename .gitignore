@@ -1,0 +1,11 @@
+# .gitignore
+
+.venv/
+__pycache__/
+*.pyc
+*.pkl
+*.pt
+out.wav
+*.wav
+local.env
+*.log
