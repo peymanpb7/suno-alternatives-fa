@@ -1,59 +1,76 @@
 from fastapi import FastAPI, Request, Response, HTTPException
-import io
+from fastapi.middleware.cors import CORSMiddleware
 import os
+import httpx
+import base64
 
-app = FastAPI()
+app = FastAPI(title="Suno Proxy (secure)")
 
-# Configure model name via env var; default to 'medium' for MusicGen if available
-MODEL_NAME = os.environ.get("MODEL_NAME", "medium")
+# Allow local testing from Android/emulator; in production lock this down
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-# Try to import audiocraft; if not available, return helpful error
-try:
-    from audiocraft.models import MusicGen
-    from audiocraft.data.audio import audio_write
-except Exception as e:
-    MusicGen = None
-    audio_write = None
-    _import_error = e
+# Required environment variables
+SUNO_API_URL = os.environ.get("SUNO_API_URL")  # e.g. https://api.suno.ai/generate
+SUNO_API_TOKEN = os.environ.get("SUNO_API_TOKEN")
+PROXY_SECRET = os.environ.get("PROXY_SECRET")  # simple shared secret for clients
 
-model = None
+if not SUNO_API_URL or not SUNO_API_TOKEN or not PROXY_SECRET:
+    print("Warning: SUNO_API_URL, SUNO_API_TOKEN or PROXY_SECRET not set. See .env.example")
 
-@app.on_event("startup")
-def load_model():
-    global model
-    if MusicGen is None:
-        print("audiocraft (MusicGen) is not available:", _import_error)
-        return
-    try:
-        print(f"Loading MusicGen pretrained model: {MODEL_NAME}")
-        model = MusicGen.get_pretrained(MODEL_NAME)
-        print("Model loaded.")
-    except Exception as e:
-        print("Failed to load model:", e)
-        model = None
 
 @app.post("/generate")
 async def generate(request: Request):
-    if model is None:
-        raise HTTPException(status_code=503, detail="Model not loaded on server. Check logs and dependencies.")
+    # Simple auth: client must provide X-API-KEY header equal to PROXY_SECRET
+    api_key = request.headers.get("X-API-KEY")
+    if PROXY_SECRET and api_key != PROXY_SECRET:
+        raise HTTPException(status_code=401, detail="Missing or invalid X-API-KEY header")
 
-    payload = await request.json()
-    prompt = payload.get("prompt")
+    body = await request.json()
+    prompt = body.get("prompt")
     if not prompt:
         raise HTTPException(status_code=400, detail="Missing 'prompt' in JSON body")
 
-    # Generate audio
-    try:
-        wavs = model.generate([prompt])
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+    # Forward to Suno API
+    headers = {
+        "Authorization": f"Bearer {SUNO_API_TOKEN}",
+        "Content-Type": "application/json",
+    }
 
-    # Write WAV to buffer
-    buf = io.BytesIO()
-    try:
-        audio_write(buf, wavs[0], model.sample_rate, format="wav")
-    except Exception as e:
-        # Fallback: try to handle numpy/tensor manually
-        raise HTTPException(status_code=500, detail=f"Failed to write audio buffer: {e}")
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            # Forward the same body to Suno. If Suno expects different fields, adapt here.
+            resp = await client.post(SUNO_API_URL, json=body, headers=headers)
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Failed to reach Suno API: {e}")
 
-    return Response(content=buf.getvalue(), media_type="audio/wav")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=f"Suno API error: {resp.text}")
+
+    # Handle response: if binary audio returned, pass through; if JSON with base64, decode
+    content_type = resp.headers.get("content-type", "")
+    if content_type.startswith("audio/"):
+        return Response(content=resp.content, media_type=content_type)
+
+    # If JSON with base64 payload
+    try:
+        data = resp.json()
+        # common field names: 'audio', 'wav', 'data'
+        b64 = None
+        for key in ("audio", "wav", "data"):
+            if key in data and isinstance(data[key], str):
+                b64 = data[key]
+                break
+        if b64:
+            audio_bytes = base64.b64decode(b64)
+            return Response(content=audio_bytes, media_type="audio/wav")
+    except Exception:
+        pass
+
+    # Fallback: return raw response body
+    return Response(content=resp.content, media_type=content_type or "application/octet-stream")

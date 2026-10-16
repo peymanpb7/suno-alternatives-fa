@@ -1,10 +1,4 @@
 fastapi
 uvicorn[standard]
-# audiocraft (MusicGen) may be installed from source; prefer installing via pip from GitHub:
-# git+https://github.com/facebookresearch/audiocraft.git
-# Note: audiocraft may require a compatible PyTorch installation (CPU or CUDA)
-
-# If you want to install directly via pip, uncomment the following line in your environment:
-# git+https://github.com/facebookresearch/audiocraft.git
-
-# For lightweight testing without audiocraft, you can keep the server and return a placeholder audio.
+httpx
+python-dotenv

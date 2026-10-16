@@ -12,8 +12,10 @@ import java.io.IOException
 
 class MainActivity : AppCompatActivity() {
     private val client = OkHttpClient()
-    // IMPORTANT: Do NOT hardcode API tokens in production. Use a secure server-side token store.
-    private val hfToken: String? = null
+
+    // For quick local testing replace PROXY_KEY with the same value as PROXY_SECRET on the server.
+    // In production, do NOT store secrets in the app.
+    private val PROXY_KEY: String? = "replace_with_proxy_secret_for_testing"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,9 +26,7 @@ class MainActivity : AppCompatActivity() {
 
         btn.setOnClickListener {
             status.text = "در حال تولید..."
-            // For quick testing, point to a hosted server (see examples/server) or Hugging Face model endpoint
-            // Example: endpoint = "http://<server-ip>:8000/generate" (server from examples/server)
-            val endpoint = "http://10.0.2.2:8000/generate" // Android emulator -> host machine mapping
+            val endpoint = "http://10.0.2.2:8000/generate"
             generateAudio(endpoint, "a calm piano melody") { success ->
                 runOnUiThread { status.text = if (success) "تکمیل" else "خطا" }
             }
@@ -36,10 +36,14 @@ class MainActivity : AppCompatActivity() {
     private fun generateAudio(endpoint: String, prompt: String, callback: (Boolean) -> Unit) {
         val json = "{\"prompt\": \"$prompt\"}"
         val body = RequestBody.create(MediaType.get("application/json"), json)
-        val req = Request.Builder()
+        val reqBuilder = Request.Builder()
             .url(endpoint)
             .post(body)
-            .build()
+
+        // Add proxy key header for simple auth
+        PROXY_KEY?.let { reqBuilder.addHeader("X-API-KEY", it) }
+
+        val req = reqBuilder.build()
 
         client.newCall(req).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
