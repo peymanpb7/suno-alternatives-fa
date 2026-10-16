@@ -1,0 +1,13 @@
+// Top-level build.gradle (Kotlin DSL could be used; using Groovy for simplicity)
+buildscript {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}

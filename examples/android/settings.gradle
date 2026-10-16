@@ -1,0 +1,3 @@
+// Project-level settings for the example Android project
+include ':app'
+rootProject.name = 'suno-android-sample'
